@@ -2,3 +2,9 @@
 
 /tmp
 *.beam
+
+grm.erl
+lex.erl
+
+# this is here for a reason
+rebar3.crashdump

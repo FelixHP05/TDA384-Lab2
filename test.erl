@@ -11,14 +11,10 @@ start() ->
     ]),
     request(ServerPID).
 
-loop(ServerAtom, State, Handler) ->
-    receive
-        { Client, ServerAtom, request, Request} ->
-            Client ! {self(), ServerAtom, response, Handler(Request)},
-            loop(ServerAtom, State, Handler)
-        _ -> 
-            loop(ServerAtom, State, Handler)
-    end.
+
+
+chatServerHandler(State, {}) ->
+
 
 request(ServerPID) -> 
     
