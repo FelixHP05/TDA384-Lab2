@@ -30,7 +30,7 @@ initial_state(Nick, GUIAtom, ServerAtom) ->
 handle(St, {join, Channel}) ->
     % TODO: Implement this function
     % {reply, ok, St} ;
-    case genserver:request(St#client_st.server, {join, self(), Channel}) of
+    case genserver:request(St#client_st.server, {subsribe, Channel, self()}) of
         ok ->
             {reply, ok, St};
         {error, Atom, Msg} ->
@@ -41,7 +41,7 @@ handle(St, {join, Channel}) ->
 handle(St, {leave, Channel}) ->
     % TODO: Implement this function
     % {reply, ok, St} ;
-    case genserver:request(St#client_st.server, {leave, self(), Channel}) of
+    case genserver:request(St#client_st.server, {unsubscribe, Channel, self()}) of
         ok ->
             {reply, ok, St};
         {error, Atom, Msg} ->
@@ -52,7 +52,7 @@ handle(St, {leave, Channel}) ->
 handle(St, {message_send, Channel, Msg}) ->
     % TODO: Implement this function
     % {reply, ok, St} ;
-    case genserver:request(St#client_st.server, {message_send, self(), Channel, St#client_st.nick, Msg}) of
+    case genserver:request(St#client_st.server, {message_send, Channel, St#client_st.nick, Msg, self()}) of
         ok ->
             {reply, ok, St};
         {error, Atom, MsgErr} ->

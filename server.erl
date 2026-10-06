@@ -1,8 +1,9 @@
 -module(server).
 -export([start/1,stop/1]).
 -record(serverState, {
-    messages,     % map Channel => {Sender, Content}[]
-    subscribers   % map Channel => ClientPID[]
+    messages = maps:new(),     % map Channel => {Sender, Content}[]
+    subscribers = maps:new(),   % map Channel => ClientPID[]
+    nicks = maps:new()
 }).
 
 
@@ -12,7 +13,11 @@
 start(ServerAtom) ->
     genserver:start(
         ServerAtom,
-        #serverState{ messages = maps:new(), subscribers = maps:new() },
+        #serverState{ 
+            messages = maps:new(), 
+            subscribers = maps:new(),
+            nicks = maps:new()
+        },
         fun handler/2
     ).
 % Stop the server process registered to the given name,
@@ -29,6 +34,8 @@ stop(ServerAtom) ->
 %     reply 
 %     Reply - tuple or atom sent to client
 %     NewState - new `serverState` record
+
+
 handler(State, {message_send, Channel, Sender, Content}) ->
 
     % prepend to list
