@@ -38,7 +38,8 @@ handler(State, {message_send, Channel, Sender, Content}) ->
     NewState = State#serverState{ messages = NewMessages },
     
     lists:foreach(
-        fun()    
+            fun (SubscriberPID) -> SubscriberPID ! { messsage_receive, Channel, Sender, Content} end,
+            maps:get(Channel, State#serverState.subscribers)
         ),
     NewState.
 
