@@ -18,9 +18,7 @@ start(ServerAtom) ->
 % Stop the server process registered to the given name,
 % together with any other associated processes
 stop(ServerAtom) ->
-    % TODO Implement function
-    % Return ok
-    not_implemented.
+    genserver:stop(ServerAtom).
 
 
 % Handles Clients' requests
@@ -33,14 +31,31 @@ stop(ServerAtom) ->
 %     NewState - new `serverState` record
 handler(State, {message_send, Channel, Sender, Content}) ->
 
-    Messages = maps:get(Channel, State#serverState.messages),
+    % prepend to list
+    Messages = maps:get(Channel, State#serverState.messages, []),
     NewMessages = [ {Sender, Content} | Messages ],
     NewState = State#serverState{ messages = NewMessages },
     
+    % notify subscribers
     lists:foreach(
-            fun (SubscriberPID) -> SubscriberPID ! { messsage_receive, Channel, Sender, Content} end,
+            fun (SubscriberPID) -> 
+                SubscriberPID ! { messsage_receive, Channel, Sender, Content},
+                receive ok -> ok end
+            end,
             maps:get(Channel, State#serverState.subscribers)
         ),
+    NewState;
+
+handler(State, {subscribe, Channel, SubscriberPID}) ->
+
+    Subscribers = maps:get(Channel, State#serverState.subscribers, []),
+    NewSubscribers = [ SubscriberPID | Subscribers ],
+    NewState = State#serverState{ subscribers = NewSubscribers },
+    NewState;
+
+handler(State, {unsubscribe, Channel, SubscriberPID}) ->
+
+    Subscribers = maps:get(Channel, State#serverState.subscribers, []),
+    NewSubscribers = lists:delete(SubscriberPID, Subscribers),
+    NewState = State#serverState{ subscribers = NewSubscribers },
     NewState.
-
-
