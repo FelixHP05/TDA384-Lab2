@@ -46,7 +46,7 @@ handler(State, {message_send, Channel, Sender, Content}) ->
     % notify subscribers
     lists:foreach(
             fun (SubscriberPID) -> 
-                SubscriberPID ! { messsage_receive, Channel, Sender, Content},
+                SubscriberPID ! { messsage_receive, Channel, Sender, Content}, %%% don't know how to send to client????
                 receive ok -> ok end
             end,
             maps:get(Channel, State#serverState.subscribers)
