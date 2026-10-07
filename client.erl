@@ -6,7 +6,10 @@
 -record(client_st, {
     gui, % atom of the GUI process
     nick, % nick/username of the client
-    server % atom of the chat server
+    server, % atom of the chat server
+% keep a local map of channels we join ChannelName => ChannelPID
+% allows to talk directly to the channel processes later
+    channels = maps:new() 
 }).
 
 % Return an initial state record. This is called from GUI.
@@ -15,60 +18,100 @@ initial_state(Nick, GUIAtom, ServerAtom) ->
     #client_st{
         gui = GUIAtom,
         nick = Nick,
-        server = ServerAtom
+        server = ServerAtom,
+        channels = maps:new()
     }.
 
-% handle/2 handles each kind of request from GUI
-% Parameters:
-%   - the current state of the client (St)
-%   - request data from GUI
-% Must return a tuple {reply, Data, NewState}, where:
-%   - Data is what is sent to GUI, either the atom `ok` or a tuple {error, Atom, "Error message"}
-%   - NewState is the updated state of the client
 
 % Join channel
 handle(St, {join, Channel}) ->
     % TODO: Implement this function
     % {reply, ok, St} ;
-    case genserver:request(St#client_st.server, {subsribe, Channel, self()}) of
-        ok ->
-            {reply, ok, St};
-        {error, Atom, Msg} ->
-            {reply, {error, Atom, Msg}, St} 
+    % check if we are already in this channel locally
+    case maps:is_key(Channel, St#client_st.channels) of
+        true ->
+            {reply, {error, user_already_joined, "USER IS HEREE!"}, St};
+        false ->
+            % ask main server for channel's PID
+            % we also send our current nick here so the server knows it (for the distinction task).
+            try genserver:request(St#client_st.server, {join, Channel, self(), St#client_st.nick}) of
+                {ok, ChannelPID} ->
+                    %after getting PID, we subscribe directly to the channel process
+                    try genserver:request(ChannelPID, {subscribe, self()}) of
+                        ok ->
+                            % save the channel PID in our local state so we can message it directly later
+                            NewChannels = maps:put(Channel, ChannelPID, St#client_st.channels),
+                            {reply, ok, St#client_st{channels = NewChannels}};
+                        {error, Atom, Msg} ->
+                            {reply, {error, Atom, Msg}, St}
+                    catch
+                        _:_ -> {reply, {error, server_not_reached, "Channel process is dead"}, St}
+                    end;
+                {error, Atom, Msg} ->
+                    {reply, {error, Atom, Msg}, St}
+            catch
+                _:_ -> {reply, {error, server_not_reached, "Main server not reached"}, St}
+            end
     end;
 
 % Leave channel
 handle(St, {leave, Channel}) ->
-    % TODO: Implement this function
-    % {reply, ok, St} ;
-    case genserver:request(St#client_st.server, {unsubscribe, Channel, self()}) of
-        ok ->
-            {reply, ok, St};
-        {error, Atom, Msg} ->
-            {reply, {error, Atom, Msg}, St} 
+    case maps:find(Channel, St#client_st.channels) of
+        {ok, ChannelPID} ->
+            % unsubscribe by talking directly to the channel process
+            try genserver:request(ChannelPID, {unsubscribe, self()}) of
+                ok ->
+                    NewChannels = maps:remove(Channel, St#client_st.channels),
+                    {reply, ok, St#client_st{channels = NewChannels}};
+                {error, Atom, Msg} ->
+                    {reply, {error, Atom, Msg}, St}
+            catch
+                % if channel process crashed, we consider ourselves successfully removed from it
+                _:_ ->
+                    NewChannels = maps:remove(Channel, St#client_st.channels),
+                    {reply, ok, St#client_st{channels = NewChannels}}
+            end;
+        error ->
+            % if we dont have the channel locally, just check if the main server is still alive
+            % to give the correct error message for the tests
+            case whereis(St#client_st.server) of
+                undefined -> {reply, {error, server_not_reached, "Main server is down"}, St};
+                _ -> {reply, {error, user_not_joined, "USER NOT HEREE!"}, St}
+            end
     end;
 
 % Sending message (from GUI, to channel)
 handle(St, {message_send, Channel, Msg}) ->
     % TODO: Implement this function
     % {reply, ok, St} ;
-    case genserver:request(St#client_st.server, {message_send, Channel, St#client_st.nick, Msg, self()}) of
-        ok ->
-            {reply, ok, St};
-        {error, Atom, MsgErr} ->
-            {reply, {error, Atom, MsgErr}, St} 
+    case maps:find(Channel, St#client_st.channels) of
+        {ok, ChannelPID} ->
+            % concurrency! send the message directly to the channel PID, bypassing the main server
+            try genserver:request(ChannelPID, {message_send, St#client_st.nick, Msg, self()}) of
+                ok -> {reply, ok, St};
+                {error, Atom, MsgErr} -> {reply, {error, Atom, MsgErr}, St}
+            catch
+                _:_ -> {reply, {error, server_not_reached, "Server not reached"}, St}
+            end;
+        error ->
+            % we not in the channel. we double check with the main server if the channel exists
+            % this handles the test case "write_not_joined3"
+            try genserver:request(St#client_st.server, {check_channel, Channel}) of
+                true -> {reply, {error, user_not_joined, "USER NOT HERE"}, St};
+                false -> {reply, {error, server_not_reached, "Channel not exist"}, St}
+            catch
+                _:_ -> {reply, {error, server_not_reached, "Main server not reached"}, St}
+            end
     end;
 
 % This case is only relevant for the distinction assignment!
 % Change nick (no check, local only)
 handle(St, {nick, NewNick}) ->
-    case genserver:request(St#client_st.server, {nick, self(), NewNick}) of
-        ok ->
-            {reply, ok, St#client_st{nick = NewNick}};
-        {error, nick_taken, Msg} ->
-            {reply, {error, nick_taken, Msg}, St};
-        {error, Atom, Msg} ->
-            {reply, {error, Atom, Msg}, St}
+    try genserver:request(St#client_st.server, {nick, self(), NewNick}) of
+        ok -> {reply, ok, St#client_st{nick = NewNick}};
+        {error, Atom, Msg} -> {reply, {error, Atom, Msg}, St}
+    catch
+        _:_ -> {reply, {error, server_not_reached, "Server not reached"}, St}
     end;
 
 % ---------------------------------------------------------------------------
@@ -91,4 +134,4 @@ handle(St, quit) ->
 
 % Catch-all for any unhandled requests
 handle(St, Data) ->
-    {reply, {error, not_implemented, "Client does not handle this command"}, St} .
+    {reply, {error, not_implemented, "Client does not handle this command"}, St}.
